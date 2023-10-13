@@ -1,0 +1,15 @@
+# TOML CONFIG FILE
+[DEFAULT]
+creds_path = "/etc/ceph"                # Path to conf files
+static_path = "./tmp"    # Path to static files
+modules_path = "./modules" # Path to modules
+
+# Example
+[cluster.ceph_test]                             # Title
+conf = "ceph.conf"                      # Config
+keyring = "ceph.client.apimon.keyring"   # Keyring
+user = "client.apimon"                   # Client name 
+type = "sata" # "sata"                   # Cluster type
+
+[SHDAPI]                                # Enable SHDAPI
+enable = false

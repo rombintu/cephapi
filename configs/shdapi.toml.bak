@@ -1,0 +1,19 @@
+# TOML CONFIG FILE FOR SHDAPI
+[DEFAULT]
+defautl_creds = ["username", "password"]
+template_url = 'https://{}.cloud.mvd.ru:8088/deviceManager/rest/{}/{}'
+
+# Examples
+[oceanstor1]       # Shd name
+place = ["led1", "niz1"]
+# creds = [               # Shd creds LIST
+#     "username",        
+#     "password",
+# ]
+
+# Or do not specify creds 
+# [oceanstor2]        # If creds == None:
+#                     #   creds = default_creds
+# Examples 2
+# [oceanstor3]
+# [oceanstor4]
