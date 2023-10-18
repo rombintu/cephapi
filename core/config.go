@@ -20,10 +20,10 @@ type Default struct {
 }
 
 type ClusterConf struct {
-	Conf    string `toml:"conf"`
-	Keyring string `toml:"keyring"`
-	User    string `toml:"user"`
-	Type    string `toml:"type"`
+	Conf string `toml:"conf"`
+	// Keyring string `toml:"keyring"`
+	User string `toml:"user"`
+	Type string `toml:"type"`
 }
 
 type SHDapi struct {

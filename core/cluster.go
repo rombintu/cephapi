@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ceph/go-ceph/rados"
+	"github.com/ceph/go-ceph/rbd"
 	"github.com/sirupsen/logrus"
 )
 
@@ -221,22 +222,41 @@ func (c *Cluster) Calculate() {
 	c.RootZones = tmpZones
 }
 
-// TODO
 func (c *Cluster) GetPoolStat(pool string) (used Size, provision Size) {
 	ioctx, err := c.Conn.OpenIOContext(pool)
 	if err != nil {
 		c.Log.Error(err)
 	}
 	defer ioctx.Destroy()
+	images, err := rbd.GetImageNames(ioctx)
+	if err != nil {
+		c.Log.Error(err)
+	}
+	c.Log.Debugf("Pool [%s]: Reading...", pool)
+	for _, imname := range images {
+		provision.PlusBytes(float64(c.GetImageProvisionSize(ioctx, imname)))
+	}
 	stat, err := ioctx.GetPoolStats()
 	if err != nil {
 		c.Log.Error(err)
 	}
-	used.InBytes = float64(stat.Num_bytes)
-	provision.InBytes = float64(stat.Num_bytes * stat.Num_object_copies)
-	used.Convert()
-	provision.Convert()
+	used.PlusBytes(float64(stat.Num_bytes))
 	return
+}
+
+func (c *Cluster) GetImageProvisionSize(ioctx *rados.IOContext, imname string) uint64 {
+	image, err := rbd.OpenImageReadOnly(ioctx, imname, rbd.NoSnapshot)
+	if err != nil {
+		c.Log.Errorf("[%s] %s. Skipping...", imname, err)
+		return 0
+	}
+	defer image.Close()
+	size, err := image.GetSize()
+	if err != nil {
+		c.Log.Errorf("[%s] %s", imname, err)
+		return 0
+	}
+	return size
 }
 
 func (c *Cluster) NodesDump() (nodesStat NodesStat) {
@@ -327,18 +347,3 @@ func (c *Cluster) GetVersion() (int, error) {
 	}
 	return version, nil
 }
-
-// stat, err := c.Conn.GetClusterStats()
-// if err != nil {
-// 	log.Fatal(err)
-// }
-// c.Log.Info("AVAI ", core.PrettyByteSize(int(stat.Kb_avail)*1024))
-// c.Log.Info("USED ", core.PrettyByteSize(int(stat.Kb_used)*1024))
-
-// for _, pool := range c.Pools {
-// 	payload, err := c.GetZoneByPoolName(pool)
-// 	if err != nil {
-// 		c.Log.Errorf("Some error: %s \n", err)
-// 	}
-// 	c.Log.Debugln(payload)
-// }
