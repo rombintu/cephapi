@@ -17,10 +17,13 @@ func main() {
 			log.Fatal(err)
 		}
 
-		for _, pool := range c.Pools {
-			// poolData := c.GetZoneByPoolName(pool.Name)
-			c.Log.Debugf("%+v", pool)
-		}
+		// for _, pool := range c.Pools {
+		// 	// poolData := c.GetZoneByPoolName(pool.Name)
+		// 	c.Log.Debugf("%+v", pool)
+		// }
+		c.GetZonesStat()
+		c.Calculate()
+		c.Log.Debugf("%+v", c.RootZones)
 
 		c.Close()
 	}

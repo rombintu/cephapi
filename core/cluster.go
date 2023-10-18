@@ -16,17 +16,22 @@ const (
 	POOL             string = "pool"
 	VAR              string = "var"
 	ARGS             string = "args"
+	METHOD           string = "output_method"
 	CRUSHROLE        string = "crush_rule"
 	CRHUSHROLELEGASY string = "crush_ruleset"
 )
 
 type Pool struct {
-	Name      string
-	ZoneId    int
-	ZoneName  string
-	Used      Size
-	Provision Size
+	Name     string
+	ZoneId   int
+	ZoneName string
+	Stat     Stat
 }
+
+// type Zone struct {
+// 	Name string
+// 	Stat Stat
+// }
 
 type Cluster struct {
 	ID           int
@@ -34,11 +39,49 @@ type Cluster struct {
 	Conn         *rados.Conn
 	IOctx        *rados.IOContext
 	Pools        []Pool
-	Zones        []string
+	Zones        []Zone
+	RootZones    []Zone
 	Config       ClusterConf
 	cephConfPath string
 	Log          *logrus.Logger
 	Version      int
+}
+
+type NodesStat struct {
+	Nodes []OsdStat `json:"nodes"`
+	// Stat  Summary   `json:"summary"`
+}
+
+type OsdStat struct {
+	ID      int    `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	TypeID  int    `json:"type_id"`
+	TotalKB uint64 `json:"kb"`
+	UsedKB  uint64 `json:"kb_used"`
+	AvailKB uint64 `json:"kb_avail"`
+	Stat    Stat
+	// Utilization float64 `json:"average_utilization"`
+}
+
+type Zone struct {
+	ID         int    `json:"rule_id"`
+	Name       string `json:"rule_name"`
+	PublicName string
+	Type       int `json:"type"`
+	IsRoot     bool
+	Steps      []struct {
+		ItemName string `json:"item_name"`
+	} `json:"steps"`
+	Stat Stat
+}
+
+type Stat struct {
+	Total Size `json:"total"`
+	Used  Size `json:"used"`
+	Avail Size `json:"avail"`
+	Provi Size `json:"provision"`
+	Free  Size `json:"free"`
 }
 
 func NewCluster(clusterName, credsPath string, conf ClusterConf) (*Cluster, error) {
@@ -49,7 +92,7 @@ func NewCluster(clusterName, credsPath string, conf ClusterConf) (*Cluster, erro
 		Log:          NewLogger(clusterName),
 	}
 
-	conn, err := rados.NewConn()
+	conn, err := rados.NewConnWithUser(c.Config.User)
 	if err != nil {
 		return c, err
 	}
@@ -86,11 +129,15 @@ func NewCluster(clusterName, credsPath string, conf ClusterConf) (*Cluster, erro
 		}
 		used, provision := c.GetPoolStat(pool)
 		c.Pools = append(c.Pools, Pool{
-			Name: pool, Used: used,
-			ZoneId:    int(zoneId),
-			ZoneName:  zoneName,
-			Provision: provision,
+			Name:     pool,
+			ZoneId:   int(zoneId),
+			ZoneName: zoneName,
+			Stat: Stat{
+				Used:  used,
+				Provi: provision,
+			},
 		})
+
 	}
 	// c.Zones = zones
 	// c.Close()
@@ -98,16 +145,16 @@ func NewCluster(clusterName, credsPath string, conf ClusterConf) (*Cluster, erro
 }
 
 func (c *Cluster) Open() error {
-	c.Log.Debug("Connect")
 	if err := c.Conn.Connect(); err != nil {
 		return err
 	}
+	c.Log.Debug("Connect")
 	return nil
 }
 
 func (c *Cluster) Close() {
-	c.Log.Debug("Disconnect")
 	c.Conn.Shutdown()
+	c.Log.Debug("Disconnect")
 }
 
 func (c *Cluster) GetZoneByPoolName(pool string) (payload map[string]interface{}) {
@@ -139,24 +186,39 @@ func (c *Cluster) GetZoneByPoolName(pool string) (payload map[string]interface{}
 	return
 }
 
-func (c *Cluster) ZonesList() (payload []string) {
-	b, err := json.Marshal(
-		map[string]interface{}{
-			PREFIX: "osd crush rule ls",
-			FORMAT: "json",
-		})
-	if err != nil {
-		c.Log.Error(err)
-	}
-	bcontent, _, err := c.Conn.MonCommand(b)
-	if err != nil {
-		c.Log.Error(err)
-	}
+func (c *Cluster) GetZonesStat() {
+	for _, node := range c.NodesDump().Nodes {
+		if node.Type == "root" {
+			for _, zone := range c.Zones {
+				// if node.ID == zone.ID {
+				zone.IsRoot = true
+				zone.Stat.Total.Set(Percent(75, int(node.TotalKB*1024/3)))
+				zone.Stat.Avail.Set(float64(node.AvailKB * 1024))
+				zone.Stat.Used.Set(float64(node.UsedKB*1024) / 3)
 
-	if err = json.Unmarshal(bcontent, &payload); err != nil {
-		c.Log.Error(err)
+				zone.PublicName = node.Name
+				// }
+				c.RootZones = append(c.RootZones, zone)
+			}
+
+		}
 	}
-	return
+}
+
+func (c *Cluster) Calculate() {
+	var tmpZones []Zone
+	for _, zone := range c.RootZones {
+		for _, pool := range c.Pools {
+			if pool.ZoneName == zone.Name {
+				zone.Stat.Provi.PlusBytes(pool.Stat.Provi.InBytes)
+			}
+		}
+		zone.Stat.Provi.Convert()
+		zone.Stat.Free.Set(zone.Stat.Total.InBytes - zone.Stat.Provi.InBytes)
+
+		tmpZones = append(tmpZones, zone)
+	}
+	c.RootZones = tmpZones
 }
 
 // TODO
@@ -170,19 +232,18 @@ func (c *Cluster) GetPoolStat(pool string) (used Size, provision Size) {
 	if err != nil {
 		c.Log.Error(err)
 	}
-	used.InBytes = stat.Num_bytes
-	provision.InBytes = stat.Num_bytes * stat.Num_object_copies
+	used.InBytes = float64(stat.Num_bytes)
+	provision.InBytes = float64(stat.Num_bytes * stat.Num_object_copies)
 	used.Convert()
 	provision.Convert()
 	return
 }
 
-func (c *Cluster) ZonesDump() map[string]interface{} {
-	var payload map[string]interface{}
+func (c *Cluster) NodesDump() (nodesStat NodesStat) {
 	b, err := json.Marshal(
 		map[string]interface{}{
 			PREFIX: "osd df",
-			VAR:    "tree",
+			METHOD: "tree",
 			FORMAT: "json",
 		})
 	if err != nil {
@@ -193,10 +254,31 @@ func (c *Cluster) ZonesDump() map[string]interface{} {
 		c.Log.Error(err)
 	}
 
-	if err = json.Unmarshal(bcontent, &payload); err != nil {
+	if err = json.Unmarshal(bcontent, &nodesStat); err != nil {
 		c.Log.Error(err)
 	}
-	return payload
+	return nodesStat
+}
+
+func (c *Cluster) ZonesList() (rules []Zone) {
+	b, err := json.Marshal(
+		map[string]interface{}{
+			PREFIX: "osd crush rule dump",
+			// VAR:    "dump",
+			FORMAT: "json",
+		})
+	if err != nil {
+		c.Log.Error(err)
+	}
+	bcontent, _, err := c.Conn.MonCommand(b)
+	if err != nil {
+		c.Log.Error(err)
+	}
+
+	if err = json.Unmarshal(bcontent, &rules); err != nil {
+		c.Log.Error(err)
+	}
+	return rules
 }
 
 func (c *Cluster) CrushRoleDump() map[string]interface{} {

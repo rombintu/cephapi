@@ -22,7 +22,7 @@ type Default struct {
 type ClusterConf struct {
 	Conf    string `toml:"conf"`
 	Keyring string `toml:"keyring"`
-	Name    string `toml:"user"`
+	User    string `toml:"user"`
 	Type    string `toml:"type"`
 }
 

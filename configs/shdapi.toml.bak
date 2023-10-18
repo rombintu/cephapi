@@ -1,7 +1,7 @@
 # TOML CONFIG FILE FOR SHDAPI
 [DEFAULT]
 defautl_creds = ["username", "password"]
-template_url = 'https://{}.cloud.mvd.ru:8088/deviceManager/rest/{}/{}'
+template_url = 'https://{}:8088/deviceManager/rest/{}/{}'
 
 # Examples
 [oceanstor1]       # Shd name

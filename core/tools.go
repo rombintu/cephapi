@@ -6,7 +6,7 @@ import (
 )
 
 type Size struct {
-	InBytes uint64
+	InBytes float64
 	Value   string
 	Unit    string
 }
@@ -21,4 +21,17 @@ func (s *Size) Convert() {
 		}
 		bf /= 1024.0
 	}
+}
+
+func (s *Size) PlusBytes(count float64) {
+	s.InBytes += count
+}
+
+func (s *Size) Set(count float64) {
+	s.InBytes = count
+	s.Convert()
+}
+
+func Percent(percent int, all int) float64 {
+	return ((float64(all) * float64(percent)) / float64(100))
 }
